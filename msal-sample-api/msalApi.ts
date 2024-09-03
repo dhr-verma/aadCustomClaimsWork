@@ -2,6 +2,7 @@ import { Configuration, ConfidentialClientApplication, LogLevel as MsalLogLevel,
 import { DefaultAzureCredential, ManagedIdentityCredential } from '@azure/identity';
 import { TokenProvider } from './tokenProvider';
 import * as uuid from 'uuid';
+import { time } from 'console';
 
 // MSAL configuration
 const msalConfig: Configuration = {
@@ -43,31 +44,40 @@ class MsalApi {
     }
 
     async runInLoop(iters: number) {
-        let avgTimeTaken = 0;
-        let minTime = Number.MAX_VALUE;
-        let maxTime = Number.MIN_VALUE;
+        const times: number[] = [];
+        let totalTime = 0;
+
         // Get the authorization URL
         for (let i=0; i<iters; i++) {
             const curr = Date.now();
-            const msalApi = new MsalApi(msalConfig);
-            const response = await msalApi.getAuthCodeUrl();
-            const timeTaken = (Date.now() - curr)/1000;
-            if (timeTaken < minTime) {
-                minTime = timeTaken;
-            }
-            if (timeTaken > maxTime) {
-                maxTime = timeTaken;
-            }
+            const response = await this.getAuthCodeUrl();
+            const timeTaken = Date.now() - curr;
+            times.push(timeTaken);
+            totalTime += timeTaken;
+
             if (i % 1000 === 0) {
                 console.log(response);
-                console.log(`Time taken for iteration ${i}: ${timeTaken} seconds`);
+                console.log(`Time taken for iteration ${i}: ${timeTaken} milliseconds`);
             }
-            avgTimeTaken += timeTaken;
         }
+
+        times.sort((a, b) => a - b);
+
+        const p50 = times[Math.floor(0.50 * times.length)];
+        const p75 = times[Math.floor(0.75 * times.length)];
+        const p90 = times[Math.floor(0.90 * times.length)];
+        const p95 = times[Math.floor(0.95 * times.length)];
+        const p99 = times[Math.floor(0.99 * times.length)];
+
         return {
-            avgTime: avgTimeTaken/iters,
-            minTime: minTime,
-            maxTime: maxTime
+            avgTime: totalTime/times.length,
+            minTime: times[0],
+            maxTime: times[times.length - 1],
+            p50: p50,
+            p75: p75,
+            p90: p90,
+            p95: p95,
+            p99: p99
         }
     }
 }
