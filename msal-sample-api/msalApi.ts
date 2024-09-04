@@ -1,17 +1,9 @@
-import { Configuration, ConfidentialClientApplication, LogLevel as MsalLogLevel, ClientCredentialRequest, IAppTokenProvider } from '@azure/msal-node';
+import { Configuration, ConfidentialClientApplication, LogLevel as MsalLogLevel, ClientCredentialRequest, IAppTokenProvider, ManagedIdentityConfiguration, ManagedIdentityIdParams, NodeSystemOptions, ManagedIdentityApplication, ManagedIdentityRequestParams } from '@azure/msal-node';
 import { DefaultAzureCredential, ManagedIdentityCredential } from '@azure/identity';
 import { TokenProvider } from './tokenProvider';
 import * as uuid from 'uuid';
-import { time } from 'console';
+import { AuthenticationResult, LoggerOptions, LogLevel } from '@azure/msal-common';
 
-// MSAL configuration
-const msalConfig: Configuration = {
-    auth: {
-        clientId: 'c00a3fc1-9b92-4ccf-a026-64033c5bb652',
-        authority: 'https://login.microsoftonline.com/088eea98-8ff6-4e87-87b7-b27f2f3068b0',
-        clientSecret: ""
-    }
-};
 
 const frsClaims = {
     documentId: uuid.v4(),
@@ -19,38 +11,83 @@ const frsClaims = {
 }
 
 class MsalApi {
-    pca: ConfidentialClientApplication;
-    credential: ManagedIdentityCredential;
+    // pca: ConfidentialClientApplication;
 
-    constructor(msalConfig: Configuration) {
-        const clientId = ""
-        const tokenProvider = new TokenProvider(clientId);
-        this.pca = new ConfidentialClientApplication(msalConfig);
-        // this.pca.SetAppTokenProvider(tokenProvider.getToken);
+    // credential: ManagedIdentityCredential;
+
+    constructor(private readonly msalConfig: any) {
+        
     }
 
-    async getAuthCodeUrl() {
+    async getAccessTokenFromManagedIdentity(): Promise<string> {
+        const config: ManagedIdentityConfiguration = {
+            managedIdentityIdParams: {
+                // uncomment only one of the following lines for user assigned managed identity
+                /*
+                 * userAssignedClientId: USER_ASSIGNED_MI_ID,
+                 * userAssignedObjectId: USER_ASSIGNED_MI_ID,
+                 * userAssignedResourceId: USER_ASSIGNED_MI_ID,
+                 */
+                userAssignedClientId: "7aa13575-dd28-4916-ab7d-b82e42f05792"
+            } as ManagedIdentityIdParams,
+            system: {
+                loggerOptions: {
+                    logLevel: LogLevel.Info,
+                } as LoggerOptions,
+            } as NodeSystemOptions,
+        };
+        const managedIdentityApplication: ManagedIdentityApplication =
+            new ManagedIdentityApplication(config);
+    
+        const managedIdentityRequestParams: ManagedIdentityRequestParams = {
+            resource: "c00a3fc1-9b92-4ccf-a026-64033c5bb652/.default",
+        };
+    
+        try {
+            const tokenResponse: AuthenticationResult =
+                await managedIdentityApplication.acquireToken(
+                    managedIdentityRequestParams
+                );
+    
+            return tokenResponse.accessToken;
+        } catch (error) {
+            throw `Error acquiring token from the Managed Identity: ${error}`;
+        }
+    }
+
+    async getAuthCodeUrl(pca: ConfidentialClientApplication) {
         try {
             const request: ClientCredentialRequest = {
                 scopes: ["c00a3fc1-9b92-4ccf-a026-64033c5bb652/.default"],
-                claims: JSON.stringify(frsClaims)
             }
-            // Define the request parameters
-            const response = await this.pca.acquireTokenByClientCredential(request)
+            const response = await pca.acquireTokenByClientCredential(request)
             return response;
         } catch (error) {
             console.log(JSON.stringify(error));
         }
     }
 
+    async createConfig(): Promise<Configuration> {
+        const clientAssertion: string = await this.getAccessTokenFromManagedIdentity();
+        return {
+            auth: {
+                clientId: this.msalConfig.clientId,
+                authority: this.msalConfig.authority,
+                clientAssertion: clientAssertion,
+            },
+        };
+    }
+
     async runInLoop(iters: number) {
         const times: number[] = [];
         let totalTime = 0;
+        const msiConfig = await this.createConfig();
+        const pca = new ConfidentialClientApplication(msiConfig);
 
         // Get the authorization URL
         for (let i=0; i<iters; i++) {
             const curr = Date.now();
-            const response = await this.getAuthCodeUrl();
+            const response = await this.getAuthCodeUrl(pca);
             const timeTaken = Date.now() - curr;
             times.push(timeTaken);
             totalTime += timeTaken;
@@ -82,8 +119,14 @@ class MsalApi {
     }
 }
 
+
+const msalConfig = {
+    clientId: "c00a3fc1-9b92-4ccf-a026-64033c5bb652",
+    authority: "https://login.microsoftonline.com/088eea98-8ff6-4e87-87b7-b27f2f3068b0/v2.0"
+}
+
 const msalApi = new MsalApi(msalConfig);
-const iters = 10000;
+const iters = 5;
 msalApi.runInLoop(iters).then((response) => {
     console.log(response);
 }).catch((error) => {
