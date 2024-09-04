@@ -40,7 +40,7 @@ class MsalApi {
             new ManagedIdentityApplication(config);
     
         const managedIdentityRequestParams: ManagedIdentityRequestParams = {
-            resource: "c00a3fc1-9b92-4ccf-a026-64033c5bb652/.default",
+            resource: "api://AzureADTokenExchange",
         };
     
         try {
